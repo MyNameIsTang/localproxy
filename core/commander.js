@@ -1,5 +1,6 @@
 const createStartHandler = require("../action/start");
-const checkStatusHandler = require('../action/status')
+const checkStatusHandler = require("../action/status");
+const stopHandler = require("../action/stop");
 
 const initCommander = (program) => {
   program
@@ -10,7 +11,7 @@ const initCommander = (program) => {
   program
     .command("stop")
     .description("Stop node proxy server")
-    .action(createStartHandler);
+    .action(stopHandler);
   program
     .command("config set <key>=<value> [other...]")
     .description("Setting environment variables")

@@ -6,7 +6,11 @@ const inquirer = require("inquirer");
 const axios = require("axios");
 const https = require("https");
 const fs = require("fs");
-const { handleResolveEnv, handleProxyServerPid } = require("../utils/index");
+const {
+  handleResolveEnv,
+  handleProxyServerPid,
+  handleStopPid,
+} = require("../utils/index");
 
 const cwdPath = path.resolve(__dirname, "../");
 const envFile = path.resolve(__dirname, "../.env.local");
@@ -35,6 +39,10 @@ const handleDownloadCaptcha = async (target) => {
     });
     const setCookies = resp.headers.get("set-cookie") || [];
     const result = setCookies.map((x) => x.split(";")[0].trim()).join(";");
+    const tmpPath = path.resolve(__dirname, "../tmp");
+    if (!fs.existsSync(tmpPath)) {
+      fs.mkdirSync(tmpPath);
+    }
     fs.writeFileSync(captchaImage, resp.data, "binary");
     execa("open", [captchaImage]);
     spinner.succeed();
@@ -76,7 +84,7 @@ const handleLogin = async ({ cookie, target, username, password }) => {
       fs.rmSync(captchaImage);
     }
     const setCookies = resp.headers.get("set-cookie") || [];
-    const result = setCookies.map((x) => x.split(";")[0].trim()).join(";");
+    const result = setCookies.map((x) => x.split(";")[0].trim()).join("; ");
     return result;
   } catch (error) {
     console.log(chalk.redBright("异常信息：", error?.message));
@@ -101,9 +109,7 @@ const handleStop = async ({ port }) => {
   // 找到之前端口对应的PID
   const pid = await handleProxyServerPid(port);
   if (pid) {
-    // kill PID
-    await execa("kill", ["-9", pid]);
-    console.log(chalk.yellow.bold("代理服务已停止！"));
+    await handleStopPid(pid);
   }
 };
 
@@ -137,7 +143,9 @@ const createStartHandler = async (target, username, password) => {
       process.exit();
     }, 4000);
   } else {
-    console.log(chalk.red.bold(`cookie为：${nextCookie}，请谨慎使用`));
+    console.log(
+      chalk.red.bold(`cookie为：${chalk.green(nextCookie)} ，请谨慎使用`)
+    );
   }
 };
 

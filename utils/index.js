@@ -36,7 +36,14 @@ const handleProxyServerPid = async (port) => {
   return stdout;
 };
 
+const handleStopPid = async (pid) => {
+  // kill PID
+  await execa("kill", ["-9", pid]);
+  console.log(chalk.yellow.bold("代理服务已停止！"));
+};
+
 module.exports = {
   handleResolveEnv,
   handleProxyServerPid,
+  handleStopPid,
 };
