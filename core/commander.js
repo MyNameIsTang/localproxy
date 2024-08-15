@@ -1,19 +1,24 @@
 const createStartHandler = require("../action/start");
+const checkStatusHandler = require('../action/status')
 
 const initCommander = (program) => {
   program
     .command("start [target] [username] [password]")
-    .description("start a node proxy server")
+    .description("Start a node proxy server")
     .action(createStartHandler);
   // TODO:
   program
     .command("stop")
-    .description("stop node proxy server")
+    .description("Stop node proxy server")
     .action(createStartHandler);
   program
     .command("config set <key>=<value> [other...]")
-    .description("setting environment variables")
+    .description("Setting environment variables")
     .action(createStartHandler);
+  program
+    .command("status")
+    .description("Check whether the proxy service exists")
+    .action(checkStatusHandler);
 };
 
 module.exports = initCommander;
