@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node app.js"
   },
-  "keywords": [],
+  "keywords": ["proxy", "local", "node"],
   "author": "",
   "license": "ISC",
   "dependencies": {
