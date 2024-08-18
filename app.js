@@ -1,9 +1,6 @@
 const express = require("express");
 const https = require("https");
 const { createProxyMiddleware } = require("http-proxy-middleware");
-require("dotenv").config({
-  path: ".env.local",
-});
 
 const app = express();
 

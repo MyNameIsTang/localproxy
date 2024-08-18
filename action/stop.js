@@ -1,6 +1,6 @@
-const { handleResolveEnv, handleProxyServerPid } = require("../utils/index");
+const { handleResolveEnv, handleProxyServerPid, handleStopPid } = require("../utils/index");
 
-const stopHandler = async () => {
+const stopHandler = async (target) => {
   const env = await handleResolveEnv({});
   const pid = await handleProxyServerPid(env.port);
   if (pid) {

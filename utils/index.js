@@ -1,31 +1,33 @@
 const chalk = require("chalk");
 const path = require("path");
 const execa = require("execa");
+const jsyaml = require("js-yaml");
+const fs = require("fs");
 
-const handleResolveEnv = ({ target, username, password }) => {
+const configPath = path.resolve(__dirname, "../config.yaml");
+
+const handleCurrentResolveConfig = () => {
   return new Promise((resolve, reject) => {
-    const env = {
-      target: process.env.TARGET || target,
-      username: process.env.USERNAME || username,
-      password: process.env.PASSWORD || password,
-      port: process.env.PORT || 3333,
-    };
+    try {
+      const data = fs.readFileSync(configPath, { encoding: "utf8" });
+      const config = jsyaml.load(data);
+      resolve(config);
+    } catch (error) {
+      console.log(chalk.red.bold("读取配置文件失败，请检查配置是否正确！"));
+      reject();
+    }
+  });
+};
 
-    if (!env.target) {
-      console.log(
-        chalk.red.bold(
-          "代理地址为空，无法获取必要信息，请重新输入或设置后再启动服务！"
-        )
-      );
+const handleSaveConfig = (config) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const result = jsyaml.dump(config);
+      fs.writeFileSync(configPath, result);
+      resolve();
+    } catch (error) {
       reject();
     }
-    if (!env.username || !env.password) {
-      console.log(
-        chalk.red.bold("账号或密码为空，请重新输入或设置后再启动服务！")
-      );
-      reject();
-    }
-    resolve(env);
   });
 };
 
@@ -43,7 +45,8 @@ const handleStopPid = async (pid) => {
 };
 
 module.exports = {
-  handleResolveEnv,
   handleProxyServerPid,
   handleStopPid,
+  handleCurrentResolveConfig,
+  handleSaveConfig,
 };

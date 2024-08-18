@@ -4,7 +4,7 @@ const stopHandler = require("../action/stop");
 
 const initCommander = (program) => {
   program
-    .command("start [target] [username] [password]")
+    .command("start [target] [restart]")
     .description("Start a node proxy server")
     .action(createStartHandler);
   // TODO:

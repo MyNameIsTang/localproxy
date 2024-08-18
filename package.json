@@ -8,7 +8,11 @@
   "scripts": {
     "start": "node app.js"
   },
-  "keywords": ["proxy", "local", "node"],
+  "keywords": [
+    "proxy",
+    "local",
+    "node"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -20,6 +24,7 @@
     "express": "^4.19.2",
     "http-proxy-middleware": "^3.0.0",
     "inquirer": "^8.2.6",
+    "js-yaml": "^4.1.0",
     "ora": "^5.4.1",
     "tesseract.js": "^5.1.0"
   },

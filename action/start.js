@@ -7,14 +7,14 @@ const axios = require("axios");
 const https = require("https");
 const fs = require("fs");
 const {
-  handleResolveEnv,
   handleProxyServerPid,
   handleStopPid,
+  handleCurrentResolveConfig,
+  handleSaveConfig,
 } = require("../utils/index");
 
 const cwdPath = path.resolve(__dirname, "../");
-const envFile = path.resolve(__dirname, "../.env.local");
-const captchaImage = path.resolve(__dirname, "../tmp/captcha.png");
+const captchaPath = path.resolve(__dirname, "../tmp/captcha.png");
 
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false, // 注意：这会使你的应用容易受到MITM攻击
@@ -43,8 +43,8 @@ const handleDownloadCaptcha = async (target) => {
     if (!fs.existsSync(tmpPath)) {
       fs.mkdirSync(tmpPath);
     }
-    fs.writeFileSync(captchaImage, resp.data, "binary");
-    execa("open", [captchaImage]);
+    fs.writeFileSync(captchaPath, resp.data, "binary");
+    execa("open", [captchaPath]);
     spinner.succeed();
     return result;
   } catch (error) {
@@ -54,7 +54,23 @@ const handleDownloadCaptcha = async (target) => {
   }
 };
 
-const handleLogin = async ({ cookie, target, username, password }) => {
+const handleCacheCookie = async ({ target, cookie }) => {
+  const { isCache } = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "isCache",
+      message: "是否缓存Cookie？",
+    },
+  ]);
+  if (isCache) {
+    const config = await handleCurrentResolveConfig();
+    config[target]["login"]["cookie"] = cookie;
+    await handleSaveConfig(config);
+    console.log(chalk.green.bold("Cookie 缓存成功"));
+  }
+};
+
+const handleLogin = async ({ cookie, target, config }) => {
   const { captcha } = await inquirer.prompt([
     {
       type: "input",
@@ -73,18 +89,21 @@ const handleLogin = async ({ cookie, target, username, password }) => {
         cookie,
       },
       data: JSON.stringify({
-        username,
-        password,
+        username: config.login.username,
+        password: config.login.password,
         captcha,
       }),
       httpsAgent,
     });
     // 删除缓存的验证码
-    if (fs.existsSync(captchaImage)) {
-      fs.rmSync(captchaImage);
+    if (fs.existsSync(captchaPath)) {
+      fs.rmSync(captchaPath);
     }
     const setCookies = resp.headers.get("set-cookie") || [];
     const result = setCookies.map((x) => x.split(";")[0].trim()).join("; ");
+
+    await handleCacheCookie({ target, cookie: result });
+
     return result;
   } catch (error) {
     console.log(chalk.redBright("异常信息：", error?.message));
@@ -95,33 +114,69 @@ const handleLogin = async ({ cookie, target, username, password }) => {
   }
 };
 
-// TODO:
-const handleSaveEnv = (params) => {
-  const result = Object.entries({ ...params, port: 3333 })
-    .map(([key, value]) => `${key.toUpperCase()}=${value}`)
-    .join("\n");
-  // 输出到env文件中
-  const b = Buffer.from(result, "utf-8").toString("binary");
-  fs.writeFileSync(envFile, b, "binary");
-};
-
-const handleStop = async ({ port }) => {
+const handleStop = async ({ proxyPort }) => {
   // 找到之前端口对应的PID
-  const pid = await handleProxyServerPid(port);
+  const pid = await handleProxyServerPid(proxyPort);
   if (pid) {
     await handleStopPid(pid);
   }
 };
 
-const createStartHandler = async (target, username, password) => {
-  const env = await handleResolveEnv({ target, username, password });
-  await handleStop(env);
-  const defaultCookie = await handleDownloadCaptcha(env.target);
-  const nextCookie = await handleLogin({
-    cookie: defaultCookie,
-    ...env,
-  });
-  handleSaveEnv({ cookie: `'${nextCookie}'`, ...env });
+const handleResolveConfig = async ({ target }) => {
+  const config = await handleCurrentResolveConfig();
+  try {
+    const preLogin = config[target];
+    if (preLogin) {
+      return preLogin;
+    } else {
+      const { username, password, isSave } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "username",
+          message: "请输入账号：",
+        },
+        {
+          type: "input",
+          name: "password",
+          message: "请输入密码：",
+        },
+        {
+          type: "confirm",
+          name: "isSave",
+          message: "是否缓存用户登录信息？",
+        },
+      ]);
+      const result = {
+        proxyPort: 3333,
+        login: {
+          username,
+          password,
+        },
+      };
+      if (isSave) {
+        await handleSaveConfig({
+          ...config,
+          [target]: result,
+        });
+      }
+      return result;
+    }
+  } catch (error) {
+    console.log("设置配置文件失败，请检查配置是否正确！", error.message);
+  }
+};
+
+const createStartHandler = async (target, restart) => {
+  let config = await handleResolveConfig({ target });
+  if (restart || !config?.login?.cookie) {
+    await handleStop(config);
+    const defaultCookie = await handleDownloadCaptcha(target);
+    config.login["cookie"] = await handleLogin({
+      target,
+      cookie: defaultCookie,
+      config,
+    });
+  }
   const { isStart } = await inquirer.prompt([
     {
       type: "confirm",
@@ -130,21 +185,32 @@ const createStartHandler = async (target, username, password) => {
     },
   ]);
   if (isStart) {
+    const env = Object.entries({
+      target,
+      cookie: config.login.cookie,
+      port: config.proxyPort,
+    }).reduce(
+      (pre, [key, value]) => Object.assign(pre, { [key.toUpperCase()]: value }),
+      {}
+    );
     const spinner = ora("代理服务正在启动...").start();
     execa("node", ["app.js"], {
       cwd: cwdPath,
       detached: true,
+      env,
     });
     setTimeout(() => {
       spinner.succeed();
       console.log(
-        chalk.green.bold(`代理服务启动成功，地址：http://localhost:${env.port}`)
+        chalk.green.bold(`代理服务启动成功，地址：http://localhost:${config.proxyPort}`)
       );
       process.exit();
     }, 4000);
   } else {
     console.log(
-      chalk.red.bold(`cookie为：${chalk.green(nextCookie)} ，请谨慎使用`)
+      chalk.red.bold(
+        `cookie为：${chalk.green(config.login.cookie)} ，请谨慎使用`
+      )
     );
   }
 };
