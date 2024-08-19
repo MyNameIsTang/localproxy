@@ -64,8 +64,18 @@ const handleCacheCookie = async ({ target, cookie }) => {
   ]);
   if (isCache) {
     const config = await handleCurrentResolveConfig();
-    config[target]["login"]["cookie"] = cookie;
-    await handleSaveConfig(config);
+    const targetInfo = config[target] || {};
+    const result = {
+      ...targetInfo,
+      login: {
+        ...(targetInfo.login || {}),
+        cookie,
+      },
+    };
+    await handleSaveConfig({
+      ...config,
+      [target]: result,
+    });
     console.log(chalk.green.bold("Cookie 缓存成功"));
   }
 };
@@ -114,21 +124,36 @@ const handleLogin = async ({ cookie, target, config }) => {
   }
 };
 
-const handleStop = async ({ proxyPort }) => {
-  // 找到之前端口对应的PID
-  const pid = await handleProxyServerPid(proxyPort);
-  if (pid) {
-    await handleStopPid(pid);
-  }
-};
-
-const handleResolveConfig = async ({ target }) => {
+const handleResolveTarget = async ({ target }) => {
   const config = await handleCurrentResolveConfig();
+  const defaultProxyTarget = config["defaultProxyTarget"];
+  const defaultProxyTargetInfo = config[defaultProxyTarget];
+  const nextTargetInfo = config[target];
   try {
-    const preLogin = config[target];
-    if (preLogin) {
-      return preLogin;
-    } else {
+    if (!target && !defaultProxyTarget) {
+      console.log(
+        chalk.red.bold("未设置代理服务器地址，无法启动服务，请检查配置！")
+      );
+      return Promise.reject();
+    }
+
+    if (
+      defaultProxyTargetInfo &&
+      (defaultProxyTarget === target || (!target && defaultProxyTarget))
+    ) {
+      return {
+        preTarget: defaultProxyTarget,
+        preTargetInfo: defaultProxyTargetInfo,
+        nextTarget: defaultProxyTarget,
+        nextTargetInfo: defaultProxyTargetInfo,
+      };
+    }
+
+    if (
+      !nextTargetInfo ||
+      !nextTargetInfo.login.username ||
+      !nextTargetInfo.login.password
+    ) {
       const { username, password, isSave } = await inquirer.prompt([
         {
           type: "input",
@@ -145,6 +170,11 @@ const handleResolveConfig = async ({ target }) => {
           name: "isSave",
           message: "是否缓存用户登录信息？",
         },
+        // {
+        //   type: "confirm",
+        //   name: "isDefault",
+        //   message: "是否设置为默认代理服务地址？",
+        // },
       ]);
       const result = {
         proxyPort: 3333,
@@ -153,30 +183,68 @@ const handleResolveConfig = async ({ target }) => {
           password,
         },
       };
-      if (isSave) {
-        await handleSaveConfig({
-          ...config,
-          [target]: result,
-        });
-      }
-      return result;
+      await handleSaveConfig({
+        ...config,
+        defaultProxyTarget: target,
+        [target]: isSave
+          ? result
+          : {
+              proxyPort: 3333,
+            },
+      });
+      return {
+        preTarget: defaultProxyTarget,
+        preTargetInfo: defaultProxyTargetInfo,
+        nextTarget: target,
+        nextTargetInfo: result,
+      };
+    } else {
+      await handleSaveConfig({
+        ...config,
+        defaultProxyTarget: target,
+      });
+      return {
+        preTarget: defaultProxyTarget,
+        preTargetInfo: defaultProxyTargetInfo,
+        nextTarget: target,
+        nextTargetInfo,
+      };
     }
   } catch (error) {
     console.log("设置配置文件失败，请检查配置是否正确！", error.message);
+    return Promise.reject();
   }
 };
 
-const createStartHandler = async (target, restart) => {
-  let config = await handleResolveConfig({ target });
-  if (restart || !config?.login?.cookie) {
-    await handleStop(config);
-    const defaultCookie = await handleDownloadCaptcha(target);
-    config.login["cookie"] = await handleLogin({
-      target,
+const createStartHandler = async (target) => {
+  const config = await handleResolveTarget({ target });
+  const pid = await handleProxyServerPid(config.preTargetInfo?.proxyPort);
+  let nextCookie = config.nextTargetInfo?.cookie;
+  if (config.preTarget === config.nextTarget) {
+    if (pid) {
+      console.log(
+        chalk.yellow.bold(`${config.preTarget} 代理服务已开启，无需重复开启！`)
+      );
+      return;
+    }
+  }
+  if (config.preTarget !== config.nextTarget || !nextCookie) {
+    if (pid) {
+      await handleStopPid(pid);
+      console.log(
+        chalk.green.bold(
+          `${chalk.yellow.bold(config.preTarget)} 代理服务已停止！`
+        )
+      );
+    }
+    const defaultCookie = await handleDownloadCaptcha(config.nextTarget);
+    nextCookie = await handleLogin({
+      target: config.nextTarget,
       cookie: defaultCookie,
-      config,
+      config: config.nextTargetInfo,
     });
   }
+
   const { isStart } = await inquirer.prompt([
     {
       type: "confirm",
@@ -187,8 +255,8 @@ const createStartHandler = async (target, restart) => {
   if (isStart) {
     const env = Object.entries({
       target,
-      cookie: config.login.cookie,
-      port: config.proxyPort,
+      cookie: nextCookie,
+      port: config.nextTargetInfo.proxyPort,
     }).reduce(
       (pre, [key, value]) => Object.assign(pre, { [key.toUpperCase()]: value }),
       {}
@@ -202,15 +270,17 @@ const createStartHandler = async (target, restart) => {
     setTimeout(() => {
       spinner.succeed();
       console.log(
-        chalk.green.bold(`代理服务启动成功，地址：http://localhost:${config.proxyPort}`)
+        chalk.green.bold(
+          `代理服务启动成功，地址：${chalk.yellow.bold(
+            `http://localhost:${config.nextTargetInfo.proxyPort}`
+          )}`
+        )
       );
       process.exit();
     }, 4000);
   } else {
     console.log(
-      chalk.red.bold(
-        `cookie为：${chalk.green(config.login.cookie)} ，请谨慎使用`
-      )
+      chalk.red.bold(`cookie为：${chalk.green(nextCookie)} ，请谨慎使用`)
     );
   }
 };
