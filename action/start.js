@@ -163,57 +163,61 @@ const handleResolveTarget = async ({ target, port }) => {
   }
 };
 
-const handleNodeChildProcess = (params) => {
-  const { spinner, ...rest } = params;
-  const env = Object.entries(rest).reduce(
-    (pre, [key, value]) => Object.assign(pre, { [key.toUpperCase()]: value }),
-    {}
-  );
-  const appPath = path.resolve(__dirname, "../app.js");
-  const child = fork(appPath, {
-    env,
+const handleNodeProcess = (params) => {
+  return new Promise((resolve) => {
+    const env = Object.entries(params).reduce(
+      (pre, [key, value]) => Object.assign(pre, { [key.toUpperCase()]: value }),
+      {}
+    );
+    const appPath = path.resolve(__dirname, "../app.js");
+    const child = fork(appPath, {
+      env,
+    });
+    child.on("message", (data) => {
+      resolve({ ...data, pid: child.pid });
+    });
   });
+};
 
-  child.on("message", (data) => {
-    if (data.code === "SUCCESS") {
-      spinner.succeed();
-      ConfigHandler.instance.setPartialValue(params.target, { pid: child.pid });
-      ConfigHandler.instance.flush();
-      console.log(
-        chalk.green.bold(
-          `代理服务启用成功，地址：${chalk.yellow.bold(
-            `http://localhost:${params.port}`
-          )}`
-        )
-      );
-      process.exit();
-    }
-    if (data.code === "EADDRINUSE") {
-      child.kill();
-      const nextPort = params.port + 1;
-      const { isContinue } = inquirer.prompt([
-        {
-          type: "confirm",
-          name: "isContinue",
-          message: `端口： ${params.port} 已被占用，是否尝试端口：${nextPort} ?`,
-        },
-      ]);
-      if (!isContinue) {
-        spinner.stop();
-        return;
-      }
-      handleNodeChildProcess({ ...params, port: nextPort });
+const handleNodeChildProcess = async (params) => {
+  const spinner = ora("代理服务正在启动...").start();
+  const data = await handleNodeProcess(params);
+  if (data.code === "SUCCESS") {
+    spinner.succeed();
+    ConfigHandler.instance.setPartialValue(params.target, {
+      pid: data.pid,
+      proxyPort: params.port,
+    });
+    ConfigHandler.instance.flush();
+    console.log(
+      chalk.green.bold(
+        `代理服务启用成功，地址：${chalk.yellow.bold(
+          `http://localhost:${params.port}`
+        )}`
+      )
+    );
+    process.exit();
+  }
+  if (data.code === "EADDRINUSE") {
+    spinner.warn();
+    const nextPort = params.port + 1;
+    const { isContinue } = await inquirer.prompt([
+      {
+        type: "confirm",
+        name: "isContinue",
+        message: `端口： ${params.port} 已被占用，是否尝试端口：${nextPort} ?`,
+      },
+    ]);
+    if (!isContinue) {
       return;
     }
-    if (data.code === "ERROR") {
-      spinner.fail();
-      child.kill();
-      console.log(
-        chalk.red.bold(`代理服务启用失败，错误原因：${data.message}`)
-      );
-      return;
-    }
-  });
+    handleNodeChildProcess({ ...params, port: nextPort });
+  }
+  if (data.code === "ERROR") {
+    spinner.fail();
+    console.log(chalk.red.bold(`代理服务启用失败，错误原因：${data.message}`));
+    return;
+  }
 };
 
 const handleCheckServicesExist = async (config) => {
@@ -265,12 +269,10 @@ const handleStartServer = async (config) => {
     );
     return;
   }
-  const spinner = ora("代理服务正在启动...").start();
   handleNodeChildProcess({
     target: config.target,
     cookie: nextCookie,
     port: config.targetInfo.proxyPort,
-    spinner,
   });
 };
 
