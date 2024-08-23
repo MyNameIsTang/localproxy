@@ -5,6 +5,7 @@ const stopHandler = require("../action/stop");
 const initCommander = (program) => {
   program
     .command("start [target]")
+    .option("-p, --port <VALUE>", "proxy port", 3000)
     .description("Start a node proxy server")
     .action(createStartHandler);
   // TODO:
@@ -17,7 +18,7 @@ const initCommander = (program) => {
     .description("Setting environment variables")
     .action(createStartHandler);
   program
-    .command("status")
+    .command("status [target]")
     .description("Check whether the proxy service exists")
     .action(checkStatusHandler);
 };

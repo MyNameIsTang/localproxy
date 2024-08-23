@@ -27,8 +27,17 @@ app.use(
   })
 );
 
-app.listen(process.env.PORT, () => {
-  console.log(
-    `Proxy server is running on http://localhost:${process.env.PORT}`
-  );
-});
+app
+  .listen(process.env.PORT, () => {
+    process.send({ code: "SUCCESS" });
+  })
+  .on("error", (err) => {
+    // 这里的 error 事件处理器会捕获服务启动时的错误
+    if (err.code === "EADDRINUSE") {
+      // 端口已被占用的错误处理
+      process.send({ code: "EADDRINUSE" });
+    } else {
+      // 其他类型的错误处理
+      process.send({ code: "ERROR", message: err.message });
+    }
+  });

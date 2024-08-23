@@ -1,17 +1,16 @@
 #! /usr/bin/env node
 
 const { program } = require("commander");
-const dotenv = require("dotenv");
 const path = require("path");
-
 const initCommander = require("../core/commander");
+const ConfigHandler = require("../utils/config");
 
-function initEnv() {
-  const envFile = path.resolve(__dirname, "../.env.local");
-  dotenv.config({ path: envFile });
+function initConfig() {
+  const configPath = path.resolve(__dirname, "../config.yaml");
+  ConfigHandler.instance.init(configPath);
 }
 
-initEnv();
+initConfig();
 initCommander(program);
 
 program.parse();
