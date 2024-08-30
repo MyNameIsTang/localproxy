@@ -7,7 +7,7 @@ const axios = require("axios");
 const https = require("https");
 const fs = require("fs");
 const { fork } = require("child_process");
-const { handleProxyServerPid } = require("../utils/index");
+const { handleProxyServerPid, handleStopPid } = require("../utils/index");
 const ConfigHandler = require("../utils/config");
 
 const captchaPath = path.resolve(__dirname, "../tmp/captcha.png");
@@ -15,38 +15,74 @@ const captchaPath = path.resolve(__dirname, "../tmp/captcha.png");
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false, // 注意：这会使你的应用容易受到MITM攻击
 });
+/**
+ * 处理下载验证码
+ *
+ * @param {string} target - 目标地址
+ * @returns {Promise<string>} - 返回 cookies 字符串
+ */
 const handleDownloadCaptcha = async (target) => {
   try {
     console.log(
       chalk.green.bold(`获取 ${chalk.yellowBright(target)} 登录验证码:`)
     );
     const spinner = ora("正在下载验证码...").start();
-    const currentTime = new Date().getTime();
-    const resp = await axios({
-      method: "GET",
-      url: `${target}/api/noauth/captcha?${currentTime}`,
-      headers: {
-        accept:
-          "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        referer: `${target}/auth`,
-      },
-      responseType: "arraybuffer",
-      httpsAgent,
-    });
-    const setCookies = resp.headers.get("set-cookie") || [];
-    const result = setCookies.map((x) => x.split(";")[0].trim()).join(";");
-    const tmpPath = path.resolve(__dirname, "../tmp");
-    if (!fs.existsSync(tmpPath)) {
-      fs.mkdirSync(tmpPath);
-    }
-    fs.writeFileSync(captchaPath, resp.data, "binary");
-    execa("open", [captchaPath]);
+    const captchaData = await downloadCaptcha(target);
+    const setCookies = captchaData.cookies;
+    const captchaPath = captchaData.captchaPath;
+    await openCaptchaImage(captchaPath);
     spinner.succeed();
-    return result;
+    return setCookies;
   } catch (error) {
     console.log(chalk.redBright("异常信息：", error?.message));
     console.log(chalk.redBright("获取验证码异常：请检查代理地址是否正常！"));
     return Promise.reject();
+  }
+};
+
+/**
+ * 下载验证码图片并保存到本地
+ *
+ * @param {string} target - 目标地址
+ * @returns {Promise<{cookies: string, captchaPath: string}>} - 返回包含 cookies 和验证码图片路径的对象
+ */
+const downloadCaptcha = async (target) => {
+  const currentTime = new Date().getTime();
+  const resp = await axios({
+    method: "GET",
+    url: `${target}/api/noauth/captcha?${currentTime}`,
+    headers: {
+      accept:
+        "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      referer: `${target}/auth`,
+    },
+    responseType: "arraybuffer",
+    httpsAgent,
+  });
+  const setCookies = resp.headers.get("set-cookie") || [];
+  const result = setCookies.map((x) => x.split(";")[0].trim()).join(";");
+  const tmpPath = path.resolve(__dirname, "../tmp");
+  if (!fs.existsSync(tmpPath)) {
+    fs.mkdirSync(tmpPath);
+  }
+  const captchaPath = path.resolve(tmpPath, "captcha.png");
+  fs.writeFileSync(captchaPath, resp.data);
+  return { cookies: result, captchaPath };
+};
+
+/**
+ * 根据平台打开验证码图片
+ *
+ * @param {string} captchaPath - 验证码图片路径
+ * @returns {Promise<void>}
+ */
+const openCaptchaImage = async (captchaPath) => {
+  if (process.platform === "darwin") {
+    await execa("open", [captchaPath]);
+  } else if (process.platform === "win32") {
+    await execa("start", [captchaPath]);
+  } else {
+    await execa("xdg-open", [captchaPath]);
   }
 };
 
@@ -63,6 +99,18 @@ const handleCacheCookie = async ({ cookie, target }) => {
   }
 };
 
+/**
+ * 处理登录请求
+ *
+ * @param param0 登录参数对象
+ * @param param0.cookie 当前请求的cookie
+ * @param param0.config 登录配置对象
+ * @param param0.config.target 目标地址
+ * @param param0.config.targetInfo 目标地址相关信息对象
+ * @param param0.config.targetInfo.username 用户名
+ * @param param0.config.targetInfo.password 密码
+ * @returns 登录成功后的cookie字符串，登录失败则返回Promise.reject()
+ */
 const handleLogin = async ({ cookie, config }) => {
   const { captcha } = await inquirer.prompt([
     {
@@ -107,7 +155,17 @@ const handleLogin = async ({ cookie, config }) => {
   }
 };
 
-const handleResolveTarget = async ({ target, port }) => {
+/**
+ * 处理解析目标服务器地址
+ *
+ * @param param0 目标服务器地址和端口信息
+ * @param param0.target 目标服务器地址
+ * @param param0.port 端口信息
+ * @returns 返回处理后的目标服务器地址和相关信息
+ * @throws 当未设置目标服务器地址时，抛出异常并输出错误信息
+ * @throws 当设置配置文件失败时，抛出异常并输出错误信息
+ */
+const handleResolveTarget = async (target) => {
   const targetInfo = ConfigHandler.instance.get(target);
   try {
     if (!target) {
@@ -135,18 +193,10 @@ const handleResolveTarget = async ({ target, port }) => {
         },
       ]);
       const result = {
-        proxyPort: port,
         username,
         password,
       };
-      ConfigHandler.instance.set(
-        target,
-        isSave
-          ? result
-          : {
-              proxyPort: port,
-            }
-      );
+      ConfigHandler.instance.set(target, isSave ? result : undefined);
       return {
         target,
         targetInfo: result,
@@ -183,10 +233,12 @@ const handleNodeChildProcess = async (params) => {
   const spinner = ora("代理服务正在启动...").start();
   const data = await handleNodeProcess(params);
   if (data.code === "SUCCESS") {
+    const nowTime = Date.now() + params.expired * 1000;
     spinner.succeed();
     ConfigHandler.instance.setPartialValue(params.target, {
       pid: data.pid,
       proxyPort: params.port,
+      expired: nowTime,
     });
     ConfigHandler.instance.flush();
     console.log(
@@ -238,9 +290,19 @@ const handleCheckServicesExist = async (config) => {
   }
 };
 
-const handleStartServer = async (config) => {
+const handleStartServer = async (config, options) => {
+  const port = config.targetInfo.proxyPort || options.port;
   const isExist = await handleCheckServicesExist(config);
-  if (isExist) {
+  // 时间过期
+  if (config.targetInfo.expired < Date.now()) {
+    config.targetInfo.cookie = null;
+    if (isExist) {
+      await handleStopPid(config.targetInfo.pid);
+      console.log(
+        chalk.red.bold(`代理服务已过期，已停止端口：${port} 对应的服务！`)
+      );
+    }
+  } else if (isExist) {
     console.log(
       chalk.yellow.bold(
         `代理地址：${config.target} 的代理服务已启用，无需重复开启！`
@@ -248,6 +310,7 @@ const handleStartServer = async (config) => {
     );
     return;
   }
+
   let nextCookie = config.targetInfo.cookie;
   if (!nextCookie) {
     const defaultCookie = await handleDownloadCaptcha(config.target);
@@ -272,15 +335,16 @@ const handleStartServer = async (config) => {
   handleNodeChildProcess({
     target: config.target,
     cookie: nextCookie,
-    port: config.targetInfo.proxyPort,
+    port: port,
+    expired: options.expired,
   });
 };
 
 const createStartHandler = async (target, options) => {
   try {
     if (target) {
-      const config = await handleResolveTarget({ target, ...options });
-      await handleStartServer(config);
+      const config = await handleResolveTarget(target);
+      await handleStartServer(config, options);
     } else {
       const keys = ConfigHandler.instance.getKeys();
       if (keys.length === 0) {
@@ -300,7 +364,7 @@ const createStartHandler = async (target, options) => {
         target,
         targetInfo: targetInfo,
       };
-      await handleStartServer(params);
+      await handleStartServer(params, options);
     }
   } catch (error) {
     console.log("服务异常：", error?.message);
