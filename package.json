@@ -1,9 +1,9 @@
 {
-  "name": "myproxy",
+  "name": "localproxy",
   "version": "1.1.0",
   "main": "index.js",
   "bin": {
-    "myproxy": "./bin/index.js"
+    "localproxy": "./bin/index.js"
   },
   "scripts": {
     "start": "node app.js"

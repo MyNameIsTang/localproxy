@@ -1,4 +1,4 @@
-## myproxy
+## localproxy
 
 用于测试环境代理服务
 
@@ -13,13 +13,13 @@
 2. 指令
    - start [target] 启用服务，传值为目标测试环境地址
      ```
-        myproxy start https://www.test.com
+        localproxy start https://www.test.com
      ```
    - stop [target] 停止服务，传值为目标测试环境地址
      ```
-       myproxy stop
+       localproxy stop
      ```
    - status 状态预览，是否启用服务，配置项等
      ```
-       myproxy status
+       localproxy status
      ```
