@@ -12,6 +12,7 @@ const initCommander = (program) => {
       "expiration time（seconds）",
       3 * 24 * 60 * 60
     )
+    .option("-r, --retry", "Whether to retry", false)
     .description("Start a node proxy server")
     .action(createStartHandler);
   program

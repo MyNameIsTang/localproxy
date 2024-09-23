@@ -1,4 +1,5 @@
 const jsyaml = require("js-yaml");
+const chalk = require("chalk");
 const fs = require("fs");
 
 class ConfigHandler {

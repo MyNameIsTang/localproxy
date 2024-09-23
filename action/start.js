@@ -294,12 +294,12 @@ const handleStartServer = async (config, options) => {
   const port = config.targetInfo.proxyPort || options.port;
   const isExist = await handleCheckServicesExist(config);
   // 时间过期
-  if (config.targetInfo.expired < Date.now()) {
+  if (config.targetInfo.expired < Date.now() || options.retry) {
     config.targetInfo.cookie = null;
     if (isExist) {
       await handleStopPid(config.targetInfo.pid);
       console.log(
-        chalk.red.bold(`代理服务已过期，已停止端口：${port} 对应的服务！`)
+        chalk.red.bold(`即将停止端口：${port} 对应的代理服务：${config.target}`)
       );
     }
   } else if (isExist) {
