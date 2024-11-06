@@ -272,44 +272,69 @@ const handleNodeChildProcess = async (params) => {
   }
 };
 
-const handleCheckServicesExist = async (config) => {
+const checkServiceExistence = async (config) => {
   if (!config.targetInfo.pid) return false;
   try {
     const existPidPath = path.resolve(__dirname, "../scripts/existPid.sh");
-    const pid = await handleProxyServerPid(config.targetInfo.proxyPort);
+    const currentPid = await handleProxyServerPid(config.targetInfo.proxyPort);
     const { stdout } = await execa("bash", [
       existPidPath,
       config.targetInfo.pid,
     ]);
-    if (stdout && config.targetInfo.pid == pid) {
-      return true;
-    }
-    return false;
+    return currentPid == config.targetInfo.pid && stdout.includes(currentPid);
   } catch (error) {
     return false;
   }
 };
 
-const handleStartServer = async (config, options) => {
-  const port = config.targetInfo.proxyPort || options.port;
-  const isExist = await handleCheckServicesExist(config);
+const handleRetryService = async (config, options) => {
+  let result = {
+    ...config,
+    targetInfo: {
+      ...(config.targetInfo || {}),
+      proxyPort: config?.targetInfo?.proxyPort || options?.port,
+    },
+  };
+  const isServiceExist = await checkServiceExistence(result);
   // 时间过期
   if (config.targetInfo.expired < Date.now() || options.retry) {
-    config.targetInfo.cookie = null;
-    if (isExist) {
+    if (isServiceExist) {
       await handleStopPid(config.targetInfo.pid);
       console.log(
-        chalk.red.bold(`即将停止端口：${port} 对应的代理服务：${config.target}`)
+        chalk.red.bold(
+          `即将停止端口：${result.targetInfo.proxyPort} 对应的代理服务：${config.target}`
+        )
       );
     }
-  } else if (isExist) {
+    const { isNewOne } = await inquirer.prompt([
+      {
+        type: "confirm",
+        name: "isNewOne",
+        message: "是否登录新账号：",
+      },
+    ]);
+    if (isNewOne) {
+      // 重置用户信息
+      ConfigHandler.instance.setPartialValue(config.target, {
+        username: undefined,
+        password: undefined,
+      });
+      result = await handleResolveTarget(config.target);
+    }
+    result.targetInfo.cookie = null;
+  } else if (isServiceExist) {
     console.log(
       chalk.yellow.bold(
         `代理地址：${config.target} 的代理服务已启用，无需重复开启！`
       )
     );
-    return;
+    return Promise.reject();
   }
+  return result;
+};
+
+const handleStartServer = async (config, options) => {
+  config = await handleRetryService(config, options);
 
   let nextCookie = config.targetInfo.cookie;
   if (!nextCookie) {
@@ -335,7 +360,7 @@ const handleStartServer = async (config, options) => {
   handleNodeChildProcess({
     target: config.target,
     cookie: nextCookie,
-    port: port,
+    port: config.targetInfo.proxyPort,
     expired: options.expired,
   });
 };

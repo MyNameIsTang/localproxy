@@ -3,7 +3,8 @@
   "version": "1.1.0",
   "main": "index.js",
   "bin": {
-    "localproxy": "./bin/index.js"
+    "localproxy": "./bin/index.js",
+    "lp": "./bin/index.js"
   },
   "scripts": {
     "start": "node app.js"
