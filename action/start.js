@@ -111,7 +111,7 @@ const handleCacheCookie = async ({ cookie, target }) => {
  * @param param0.config.targetInfo.password 密码
  * @returns 登录成功后的cookie字符串，登录失败则返回Promise.reject()
  */
-const handleLogin = async ({ cookie, config }) => {
+const handleLogin = async ({ cookie, target, config }) => {
   const { captcha } = await inquirer.prompt([
     {
       type: "input",
@@ -122,16 +122,16 @@ const handleLogin = async ({ cookie, config }) => {
   try {
     const resp = await axios({
       method: "POST",
-      url: `${config.target}/api/login`,
+      url: `${target}/api/login`,
       headers: {
         "content-type": "text/plain;charset=UTF-8",
-        referer: `${config.target}/auth`,
+        referer: `${target}/auth`,
         "x-request-path": "api",
         cookie,
       },
       data: JSON.stringify({
-        username: config.targetInfo.username,
-        password: config.targetInfo.password,
+        username: config.username,
+        password: config.password,
         captcha,
       }),
       httpsAgent,
@@ -142,9 +142,7 @@ const handleLogin = async ({ cookie, config }) => {
     }
     const setCookies = resp.headers.get("set-cookie") || [];
     const result = setCookies.map((x) => x.split(";")[0].trim()).join("; ");
-
-    await handleCacheCookie({ cookie: result, target: config.target });
-
+    await handleCacheCookie({ cookie: result, target });
     return result;
   } catch (error) {
     console.log(chalk.redBright("异常信息：", error?.message));
@@ -156,61 +154,24 @@ const handleLogin = async ({ cookie, config }) => {
 };
 
 /**
- * 处理解析目标服务器地址
+ * 处理登录账号的函数
  *
- * @param param0 目标服务器地址和端口信息
- * @param param0.target 目标服务器地址
- * @param param0.port 端口信息
- * @returns 返回处理后的目标服务器地址和相关信息
- * @throws 当未设置目标服务器地址时，抛出异常并输出错误信息
- * @throws 当设置配置文件失败时，抛出异常并输出错误信息
+ * @returns 返回包含用户名和密码的对象
  */
-const handleResolveTarget = async (target) => {
-  const targetInfo = ConfigHandler.instance.get(target);
-  try {
-    if (!target) {
-      console.log(
-        chalk.red.bold("未设置代理服务器地址，无法启动服务，请检查配置！")
-      );
-      return Promise.reject();
-    }
-    if (!targetInfo || !targetInfo.username || !targetInfo.password) {
-      const { username, password, isSave } = await inquirer.prompt([
-        {
-          type: "input",
-          name: "username",
-          message: "请输入账号：",
-        },
-        {
-          type: "input",
-          name: "password",
-          message: "请输入密码：",
-        },
-        {
-          type: "confirm",
-          name: "isSave",
-          message: "是否缓存用户登录信息？",
-        },
-      ]);
-      const result = {
-        username,
-        password,
-      };
-      ConfigHandler.instance.set(target, isSave ? result : undefined);
-      return {
-        target,
-        targetInfo: result,
-      };
-    } else {
-      return {
-        target,
-        targetInfo,
-      };
-    }
-  } catch (error) {
-    console.log("设置配置文件失败，请检查配置是否正确！", error.message);
-    return Promise.reject();
-  }
+const handleLoginAccount = async () => {
+  const { username, password } = await inquirer.prompt([
+    {
+      type: "input",
+      name: "username",
+      message: "请输入账号：",
+    },
+    {
+      type: "input",
+      name: "password",
+      message: "请输入密码：",
+    },
+  ]);
+  return { username, password };
 };
 
 const handleNodeProcess = (params) => {
@@ -272,75 +233,14 @@ const handleNodeChildProcess = async (params) => {
   }
 };
 
-const checkServiceExistence = async (config) => {
-  if (!config.targetInfo.pid) return false;
-  try {
-    const existPidPath = path.resolve(__dirname, "../scripts/existPid.sh");
-    const currentPid = await handleProxyServerPid(config.targetInfo.proxyPort);
-    const { stdout } = await execa("bash", [
-      existPidPath,
-      config.targetInfo.pid,
-    ]);
-    return currentPid == config.targetInfo.pid && stdout.includes(currentPid);
-  } catch (error) {
-    return false;
-  }
-};
-
-const handleRetryService = async (config, options) => {
-  let result = {
-    ...config,
-    targetInfo: {
-      ...(config.targetInfo || {}),
-      proxyPort: config?.targetInfo?.proxyPort || options?.port,
-    },
-  };
-  const isServiceExist = await checkServiceExistence(result);
-  // 时间过期
-  if (config.targetInfo.expired < Date.now() || options.retry) {
-    if (isServiceExist) {
-      await handleStopPid(config.targetInfo.pid);
-      console.log(
-        chalk.red.bold(
-          `即将停止端口：${result.targetInfo.proxyPort} 对应的代理服务：${config.target}`
-        )
-      );
-    }
-    const { isNewOne } = await inquirer.prompt([
-      {
-        type: "confirm",
-        name: "isNewOne",
-        message: "是否登录新账号：",
-      },
-    ]);
-    if (isNewOne) {
-      // 重置用户信息
-      ConfigHandler.instance.setPartialValue(config.target, {
-        username: undefined,
-        password: undefined,
-      });
-      result = await handleResolveTarget(config.target);
-    }
-    result.targetInfo.cookie = null;
-  } else if (isServiceExist) {
-    console.log(
-      chalk.yellow.bold(
-        `代理地址：${config.target} 的代理服务已启用，无需重复开启！`
-      )
-    );
-    return Promise.reject();
-  }
-  return result;
-};
-
-const handleStartServer = async (config, options) => {
-  config = await handleRetryService(config, options);
-
-  let nextCookie = config.targetInfo.cookie;
+const handleStartServer = async (target, options) => {
+  const config = ConfigHandler.instance.get(target);
+  let nextCookie = config?.cookie;
   if (!nextCookie) {
-    const defaultCookie = await handleDownloadCaptcha(config.target);
+    const defaultCookie = await handleDownloadCaptcha(target);
     nextCookie = await handleLogin({
       config,
+      target,
       cookie: defaultCookie,
     });
   }
@@ -358,41 +258,97 @@ const handleStartServer = async (config, options) => {
     return;
   }
   handleNodeChildProcess({
-    target: config.target,
+    target,
     cookie: nextCookie,
-    port: config.targetInfo.proxyPort,
+    port: config.proxyPort,
     expired: options.expired,
   });
 };
 
+const handleChoiceTarget = async () => {
+  const keys = ConfigHandler.instance.getKeys();
+  if (keys.length === 0) {
+    throw new Error(chalk.yellow.bold("缺少代理地址，请重新设置后启动！"));
+  }
+  const { target } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "target",
+      message: "请选择要使用的代理地址：",
+      choices: ConfigHandler.instance.getKeys(),
+    },
+  ]);
+  return target;
+};
+
+const checkServiceExistence = async (config) => {
+  if (!config.pid) return false;
+  try {
+    const existPidPath = path.resolve(__dirname, "../scripts/existPid.sh");
+    const currentPid = await handleProxyServerPid(config.proxyPort);
+    const { stdout } = await execa("bash", [existPidPath, config.pid]);
+    return currentPid == config.pid && stdout.includes(currentPid);
+  } catch (error) {
+    return false;
+  }
+};
+
+// 检查服务是否可用，是否重启
+const checkTargetService = async (target, options) => {
+  if (!target) {
+    target = await handleChoiceTarget();
+  }
+  const config = ConfigHandler.instance.get(target);
+  const isServiceExist = await checkServiceExistence(config);
+  // 时间过期
+  if (config.expired < Date.now() || options.retry) {
+    if (isServiceExist) {
+      const spinner = ora(
+        `正在停止 ${chalk.yellow.bold(target)} 代理服务...`
+      ).start();
+      await handleStopPid(config.pid);
+      spinner.succeed();
+    }
+    const { isNewOne } = await inquirer.prompt([
+      {
+        type: "confirm",
+        name: "isNewOne",
+        message: "是否登录新账号：",
+      },
+    ]);
+    if (isNewOne) {
+      // 重置用户信息
+      const info = await handleLoginAccount(target);
+      ConfigHandler.instance.setPartialValue(target, info);
+    }
+    ConfigHandler.instance.setPartialValue(target, {
+      cookie: null,
+      expired: null,
+    });
+  } else if (isServiceExist) {
+    throw new Error(
+      chalk.yellow.bold(`代理地址：${target} 的代理服务已启用，无需重复开启！`)
+    );
+  }
+  return target;
+};
+
+const checkTargetProxyPort = (target, options) => {
+  const config = ConfigHandler.instance.get(target);
+  if (!config?.proxyPort) {
+    ConfigHandler.instance.setPartialValue(target, {
+      proxyPort: options.port,
+    });
+  }
+};
+
 const createStartHandler = async (target, options) => {
   try {
-    if (target) {
-      const config = await handleResolveTarget(target);
-      await handleStartServer(config, options);
-    } else {
-      const keys = ConfigHandler.instance.getKeys();
-      if (keys.length === 0) {
-        console.log(chalk.yellow.bold("缺少代理地址，请重新设置后启动！"));
-        return;
-      }
-      const { target } = await inquirer.prompt([
-        {
-          type: "list",
-          name: "target",
-          message: "请选择要使用的代理地址：",
-          choices: ConfigHandler.instance.getKeys(),
-        },
-      ]);
-      const targetInfo = ConfigHandler.instance.get(target);
-      const params = {
-        target,
-        targetInfo: targetInfo,
-      };
-      await handleStartServer(params, options);
-    }
+    target = await checkTargetService(target, options);
+    checkTargetProxyPort(target, options);
+    await handleStartServer(target, options);
   } catch (error) {
-    console.log("服务异常：", error?.message);
+    console.log(error?.message);
   }
 };
 
