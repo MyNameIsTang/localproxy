@@ -282,7 +282,7 @@ const handleChoiceTarget = async () => {
 };
 
 const checkServiceExistence = async (config) => {
-  if (!config.pid) return false;
+  if (!config?.pid) return false;
   try {
     const existPidPath = path.resolve(__dirname, "../scripts/existPid.sh");
     const currentPid = await handleProxyServerPid(config.proxyPort);
@@ -299,6 +299,15 @@ const checkTargetService = async (target, options) => {
     target = await handleChoiceTarget();
   }
   const config = ConfigHandler.instance.get(target);
+
+  // 此时为新增的代理地址
+  if (!config) {
+    // 重置用户信息
+    const info = await handleLoginAccount(target);
+    ConfigHandler.instance.setPartialValue(target, info);
+    return target;
+  }
+
   const isServiceExist = await checkServiceExistence(config);
   // 时间过期
   if (config.expired < Date.now() || options.retry) {
