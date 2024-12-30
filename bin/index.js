@@ -2,15 +2,48 @@
 
 const { program } = require("commander");
 const path = require("path");
-const initCommander = require("../core/commander");
-const ConfigHandler = require("../utils/config");
+const ConfigHandler = require("../lib/utils/config");
+
+const CreateStartHandler = require("../lib/start");
+const checkStatusHandler = require("../lib/status");
+const stopHandler = require("../lib/stop");
+const configChangeHandler = require("../lib/config");
+
+function initCommander(program) {
+  program
+    .command("start [target]")
+    .option("-p, --port <VALUE>", "proxy port")
+    .option(
+      "-e, --expired <VALUE>",
+      "expiration time（seconds）",
+      3 * 24 * 60 * 60
+    )
+    .option("-r, --retry", "Whether to retry", false)
+    .description("Start a node proxy server")
+    .action(CreateStartHandler.instance.init.bind(CreateStartHandler.instance));
+  program
+    .command("stop [target]")
+    .description("Stop node proxy server")
+    .action(stopHandler);
+  program
+    .command("config [target]")
+    .option("-e, --edit", "Open an editor", true)
+    .option("-g, --get", "Get value: name [value-regex]")
+    .description("Setting environment variables")
+    .action(configChangeHandler);
+  program
+    .command("status [target]")
+    .description("Check whether the proxy service exists")
+    .action(checkStatusHandler);
+}
 
 function initConfig() {
   const configPath = path.resolve(__dirname, "../config.yaml");
   ConfigHandler.instance.init(configPath);
 }
-
+// 初始化配置
 initConfig();
+// 初始化命令行
 initCommander(program);
 
 program.parse();
