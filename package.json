@@ -1,6 +1,6 @@
 {
   "name": "@fckname/localproxy",
-  "version": "0.2.1",
+  "version": "0.3.20250221",
   "main": "index.js",
   "bin": {
     "localproxy": "./bin/index.js",
@@ -12,7 +12,8 @@
     "node"
   ],
   "scripts": {
-    "postuninstall": "node scripts/post-uninstall.js"
+    "postuninstall": "node scripts/post-uninstall.js",
+    "version": "node scripts/version.js"
   },
   "homepage": "https://github.com/MyNameIsTang/localproxy",
   "author": "",
