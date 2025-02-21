@@ -2,6 +2,7 @@
 
 const { program } = require("commander");
 const path = require("path");
+const os = require("os");
 const ConfigHandler = require("../lib/utils/config");
 
 const CreateStartHandler = require("../lib/start");
@@ -37,8 +38,14 @@ function initCommander(program) {
     .action(checkStatusHandler);
 }
 
+function handleConfigPath() {
+  const configDir = path.join(os.homedir(), ".proxy-package");
+  const configPath = path.join(configDir, "config.yaml");
+  return configPath;
+}
+
 function initConfig() {
-  const configPath = path.resolve(__dirname, "../config.yaml");
+  const configPath = handleConfigPath();
   ConfigHandler.instance.init(configPath);
 }
 // 初始化配置
