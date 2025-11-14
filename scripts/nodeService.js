@@ -12,6 +12,7 @@ app.use(
   "/",
   createProxyMiddleware({
     target: process.env.TARGET,
+    ws: true,
     changeOrigin: true,
     agent: httpsAgent,
     on: {
