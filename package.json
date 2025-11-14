@@ -1,6 +1,6 @@
 {
   "name": "@fckname/localproxy",
-  "version": "0.3.20250221",
+  "version": "0.4.20251114",
   "main": "index.js",
   "bin": {
     "localproxy": "./bin/index.js",
